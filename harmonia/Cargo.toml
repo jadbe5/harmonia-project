@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 eframe = "0.30"
 egui = "0.30"
+rustfft = "6.2.0"
+num-complex = "0.4.3"
