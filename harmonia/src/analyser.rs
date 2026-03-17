@@ -165,7 +165,7 @@ impl FrequencyAnalyzer {
 
         // 5. Extraire le nom de la note et l'octave
         // En MIDI, l'octave 0 commence à la note 12
-        let note_index = (closest_midi % 12) as usize;
+        let note_index = closest_midi.rem_euclid(12) as usize;
         let octave = (closest_midi / 12) - 1;
 
         Note {
@@ -177,18 +177,18 @@ impl FrequencyAnalyzer {
 
 
     fn print_tuner_status(res: Note) {
-    let indicator = if res.cents.abs() < 5.0 {
-        "✅ ACCORDÉ"
-    } else if res.cents > 0.0 {
-        "Too High ⬆️"
-    } else {
-        "Too Low  ⬇️"
-    };
+        let indicator = if res.cents.abs() < 5.0 {
+            "✅ ACCORDÉ"
+        } else if res.cents > 0.0 {
+            "Too High ⬆️"
+        } else {
+            "Too Low  ⬇️"
+        };
 
-    println!(
-        "Note: {}{} | Erreur: {:+5.1} cents | {}",
-        res.name, res.octave, res.cents, indicator
-    );
+        println!(
+            "Note: {}{} | Erreur: {:+5.1} cents | {}",
+            res.name, res.octave, res.cents, indicator
+        );
     }
 
     // Ta fonction "maître" appelée à chaque nouveau buffer audio
@@ -208,25 +208,25 @@ impl FrequencyAnalyzer {
         // --- ICI COMMENCE TA BOUCLE TEMPS RÉEL (ex: callback CPAL ou Rodio) ---
         // Supposons que 'audio_in' est le bloc de f32 reçu du micro
         /*
-        loop {
-            let mut audio_in = capture_audio_buffer(fft_size); // Fonction fictive représentant ton micro
+           loop {
+           let mut audio_in = capture_audio_buffer(fft_size); // Fonction fictive représentant ton micro
 
-            // ÉTAPE A : Pré-traitement (Windowing)
-            analyzer.apply_window(&mut audio_in);
+        // ÉTAPE A : Pré-traitement (Windowing)
+        analyzer.apply_window(&mut audio_in);
 
-            // ÉTAPE B : Calcul du spectre (FFT)
-            // On passe les buffers réutilisables pour ne rien allouer
-            analyzer.compute_fft_magnitude(&audio_in, &mut complex_buffer, &mut magnitudes);
+        // ÉTAPE B : Calcul du spectre (FFT)
+        // On passe les buffers réutilisables pour ne rien allouer
+        analyzer.compute_fft_magnitude(&audio_in, &mut complex_buffer, &mut magnitudes);
 
-            // ÉTAPE C : Détection de la fréquence précise
-            if let Some(freq) = analyzer.find_precise_frequency(&magnitudes) {
+        // ÉTAPE C : Détection de la fréquence précise
+        if let Some(freq) = analyzer.find_precise_frequency(&magnitudes) {
 
-                // ÉTAPE D : Traduction musicale
-                let result = analyzer.hz_to_note(freq);
+        // ÉTAPE D : Traduction musicale
+        let result = analyzer.hz_to_note(freq);
 
-                // ÉTAPE E : Affichage (on pourrait ici envoyer ça à une interface graphique)
-                print_tuner_status(result);
-            }
+        // ÉTAPE E : Affichage (on pourrait ici envoyer ça à une interface graphique)
+        print_tuner_status(result);
+        }
         }
         */
     }
