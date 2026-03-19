@@ -5,7 +5,7 @@ use input::{AudioConfig, AudioInput};
 use rustfft::num_complex::Complex;
 
 
-
+/*
 fn test() -> Result<(), Box<dyn std::error::Error>>
 {
     let audio = AudioInput::start(AudioConfig::default())?;
@@ -29,7 +29,7 @@ fn test() -> Result<(), Box<dyn std::error::Error>>
     println!("Analyseur compilé avec succès !");
     // C'est ici que tu injecteras ton flux audio venant du micro.
 }
-
+*/
 
 
 
