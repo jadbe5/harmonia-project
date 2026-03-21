@@ -1,4 +1,4 @@
-mod gui;
+/*mod gui;
 use gui::app::HarmoniaApp;
 
 fn main() -> eframe::Result<()> {
@@ -20,4 +20,27 @@ fn main() -> eframe::Result<()> {
             Ok(Box::new(HarmoniaApp::default()) as Box<dyn eframe::App>)
         }),
     )
+}*/
+
+
+
+mod notes;
+mod comparaison;
+
+use notes::GUITAR;
+
+fn main()
+{
+    println!("Liste des cordes de guitare :");
+    for s in GUITAR.iter()
+    {
+        println!("{} -> {} Hz", s.name, s.frequency);
+    }
+
+    let freq = 111.0;
+    let result = comparaison::compare_frequency(freq);
+    println!("{}", result);
+    let freq2 = 82.0;
+    let result = comparaison::compare_frequency(freq2);
+    println!("{}", result);
 }
