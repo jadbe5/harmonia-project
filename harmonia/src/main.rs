@@ -1,3 +1,29 @@
+mod gui;
+use gui::app::HarmoniaApp;
+
+fn main() -> eframe::Result<()> {
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([860.0, 480.0])
+            .with_min_inner_size([860.0, 480.0])
+            .with_max_inner_size([860.0, 480.0])
+            .with_title("TrueTone")
+            .with_resizable(false)
+            .with_fullscreen(false),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "TrueTone",
+        options,
+        Box::new(|cc| {
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+            Ok(Box::new(HarmoniaApp::default()) as Box<dyn eframe::App>)
+        }),
+    )
+
+}
+
+/*
 mod analyser;
 use analyser::*;
 mod input;
@@ -5,44 +31,16 @@ use input::{AudioConfig, AudioInput};
 use rustfft::num_complex::Complex;
 
 
-/*
-fn test() -> Result<(), Box<dyn std::error::Error>>
-{
-    let audio = AudioInput::start(AudioConfig::default())?;
-
-    println!("capture audio demarree");
-
-    loop
-    {
-        let chunk = audio.recv()?;
-
-        println!(
-            "chunk recu | samples={} | sample_rate={} | niveau={:.5} | seuil={:.5}",
-            chunk.samples.len(),
-            chunk.sample_rate,
-            chunk.level,
-            chunk.threshold
-        );
-    }
-
-    let mut analyzer = FrequencyAnalyzer::new(44100.0, 2048);
-    println!("Analyseur compilé avec succès !");
-    // C'est ici que tu injecteras ton flux audio venant du micro.
-}
-*/
-
-
-
 fn main() -> Result<(), Box<dyn std::error::Error>>
 {
-    //test();
+
     let sample_rate = 44100.0;
     let fft_size = 4096;
 
-    // 2. Initialisation de ton analyseur (une seule fois !)
+
     let mut analyzer = FrequencyAnalyzer::new(sample_rate, fft_size);
 
-    // 3. Préparation des buffers de travail (pour éviter les allocations dans la boucle)
+
     let mut complex_buffer = vec![Complex { re: 0.0, im: 0.0 }; fft_size];
     let mut magnitudes = vec![0.0; fft_size / 2];
 
@@ -69,4 +67,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>>
         }
     }
 }
-
+*/
