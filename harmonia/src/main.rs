@@ -1,4 +1,4 @@
-/*mod gui;
+mod gui;
 use gui::app::HarmoniaApp;
 
 fn main() -> eframe::Result<()> {
@@ -20,10 +20,59 @@ fn main() -> eframe::Result<()> {
             Ok(Box::new(HarmoniaApp::default()) as Box<dyn eframe::App>)
         }),
     )
-}*/
+}
 
 
 
+/*
+mod analyser;
+use analyser::*;
+mod input;
+use input::{AudioConfig, AudioInput};
+use rustfft::num_complex::Complex;
+
+
+fn main() -> Result<(), Box<dyn std::error::Error>>
+{
+
+    let sample_rate = 44100.0;
+    let fft_size = 4096;
+
+
+    let mut analyzer = FrequencyAnalyzer::new(sample_rate, fft_size);
+
+
+    let mut complex_buffer = vec![Complex { re: 0.0, im: 0.0 }; fft_size];
+    let mut magnitudes = vec![0.0; fft_size / 2];
+
+    println!("Accordeur prêt ! Jouez une note...");
+
+    let audio = AudioInput::start(AudioConfig::default())?;
+
+    println!("capture audio demarree");
+
+    loop {
+
+        let chunk = audio.recv()?;
+
+        let mut audio_in = chunk.samples;
+
+        analyzer.apply_window(&mut audio_in);
+
+        analyzer.compute_fft_magnitude(&audio_in, &mut complex_buffer, &mut magnitudes);
+
+        if let Some(freq) = analyzer.find_precise_frequency(&magnitudes) {
+
+            let result = analyzer.hz_to_note(freq);
+            println!("result = {}", result.name);
+        }
+    }
+}
+*/
+
+
+
+/*
 mod notes;
 mod comparaison;
 
@@ -44,3 +93,4 @@ fn main()
     let result = comparaison::compare_frequency(freq2);
     println!("{}", result);
 }
+*/
