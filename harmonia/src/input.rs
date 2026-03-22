@@ -7,9 +7,9 @@ use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 pub struct AudioChunk
 {
     pub samples: Vec<f32>,
-    pub sample_rate: u32,
-    pub level: f32,
-    pub threshold: f32,
+    pub _sample_rate: u32,
+    pub _level: f32,
+    pub _threshold: f32,
 }
 
 pub struct AudioConfig
@@ -110,11 +110,12 @@ impl AudioInput
     {
         self.receiver.recv()
     }
-
+    /*
     pub fn try_recv(&self) -> Result<AudioChunk, crossbeam_channel::TryRecvError>
     {
         self.receiver.try_recv()
     }
+    */
 }
 
 fn select_input_config(
@@ -167,7 +168,7 @@ fn select_input_config(
             best_config = Some(SelectedConfig{
                 stream_config: cpal::StreamConfig {
                     channels,
-                    sample_rate: cpal::SampleRate(chosen_rate),
+                   sample_rate: cpal::SampleRate(chosen_rate),
                     buffer_size: cpal::BufferSize::Default,
                 },
                 sample_format,
@@ -207,7 +208,7 @@ where
 fn process_input<T>(
     data: &[T],
     channels: usize,
-    sample_rate: u32,
+    _sample_rate: u32,
     sender: &Sender<AudioChunk>,
     state: &Arc<Mutex<SharedState>>,
     config: &AudioConfig,
@@ -250,11 +251,11 @@ fn process_input<T>(
 
         remove_dc_offset(&mut samples);
 
-        let level = average_amplitude(&samples);
+        let _level = average_amplitude(&samples);
 
         if !state.calibrated
         {
-            state.noise_sum += level;
+            state.noise_sum += _level;
             state.noise_count += 1;
 
             if state.noise_count >= config.calibration_frames
@@ -265,7 +266,7 @@ fn process_input<T>(
             }
         }
 
-        if state.calibrated && level >= state.threshold
+        if state.calibrated && _level >= state.threshold
         {
             normalize_gain(&mut samples, config.max_gain);
         }
@@ -273,9 +274,9 @@ fn process_input<T>(
         let chunk = AudioChunk
         {
             samples,
-            sample_rate,
-            level,
-            threshold: state.threshold,
+            _sample_rate,
+            _level,
+            _threshold: state.threshold,
         };
 
         match sender.try_send(chunk)
