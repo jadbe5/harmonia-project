@@ -61,7 +61,7 @@ pub fn draw_left_panel(ui: &mut egui::Ui, panel_height: f32, selected_string: &m
         };
 
         // DEBUG
-        ui.painter().rect_stroke(hit_rect, 0.0, egui::Stroke::new(2.0, egui::Color32::RED));
+        //ui.painter().rect_stroke(hit_rect, 0.0, egui::Stroke::new(2.0, egui::Color32::RED));
 
         let interact = ui.interact(hit_rect, ui.id().with(i), egui::Sense::click());
 

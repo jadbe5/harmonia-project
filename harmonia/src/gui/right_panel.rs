@@ -73,8 +73,8 @@ pub fn draw_right_panel(ui: &mut egui::Ui, note: &str, derror: &mut f32) {
         );
 
         // DEBUG
-        ui.add_space(80.0);
+        /*ui.add_space(80.0);
         ui.label(egui::RichText::new("Outils de simulation (Debug):").color(egui::Color32::GRAY));
-        ui.add(egui::Slider::new(derror, -50.0..=50.0).text("Simuler décalage (derror)"));
+        ui.add(egui::Slider::new(derror, -50.0..=50.0).text("Simuler décalage (derror)"));*/
     });
 }
