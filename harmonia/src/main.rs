@@ -1,3 +1,4 @@
+/*
 mod gui;
 use gui::app::HarmoniaApp;
 
@@ -21,15 +22,18 @@ fn main() -> eframe::Result<()> {
         }),
     )
 }
+*/
 
 
-
-/*
 mod analyser;
 use analyser::*;
 mod input;
 use input::{AudioConfig, AudioInput};
 use rustfft::num_complex::Complex;
+mod notes;
+mod comparaison;
+
+use notes::GUITAR;
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>>
@@ -63,12 +67,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>>
 
         if let Some(freq) = analyzer.find_precise_frequency(&magnitudes) {
 
-            let result = analyzer.hz_to_note(freq);
-            println!("result = {}", result.name);
+            let result = comparaison::compare_frequency(freq);
+            println!("{}", result);
         }
     }
 }
-*/
 
 
 
