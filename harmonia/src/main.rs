@@ -1,4 +1,4 @@
-/*
+
 mod gui;
 use gui::app::HarmoniaApp;
 
@@ -22,9 +22,8 @@ fn main() -> eframe::Result<()> {
         }),
     )
 }
-*/
 
-
+/*
 mod analyser;
 use analyser::*;
 mod input;
@@ -72,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>
         }
     }
 }
-
+*/
 
 
 /*
