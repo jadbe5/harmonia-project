@@ -78,14 +78,23 @@ impl FrequencyAnalyzer {
     }
 
     // found the fundamental frequency using parabolic interpolation
-    pub fn find_precise_frequency(&self, magnitudes: &[f32]) -> Option<f32> {
-        let mut max_idx = 0;
+    // min_hz / max_hz : plage de recherche pour ignorer harmoniques et bruit hors spectre utile
+    pub fn find_precise_frequency(&self, magnitudes: &[f32], min_hz: f32, max_hz: f32) -> Option<f32> {
+        // Convertir les fréquences Hz en indices de bins FFT
+        let min_bin = ((min_hz * self.fft_size as f32 / self.sample_rate) as usize).max(1);
+        let max_bin = ((max_hz * self.fft_size as f32 / self.sample_rate) as usize)
+            .min(magnitudes.len() - 2);
+
+        if min_bin >= max_bin {
+            return None;
+        }
+
+        let mut max_idx = min_bin;
         let mut max_mag = 0.0;
 
-        for (i, &mag) in magnitudes.iter().enumerate() { // found the case that contains the highter
-                                                         // frequency
-            if mag > max_mag {
-                max_mag = mag;
+        for i in min_bin..=max_bin {  // recherche uniquement dans la plage utile
+            if magnitudes[i] > max_mag {
+                max_mag = magnitudes[i];
                 max_idx = i;
             }
         }

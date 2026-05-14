@@ -51,7 +51,8 @@ fn main() -> eframe::Result<()> {
             analyzer.apply_window(&mut audio_in);
             analyzer.compute_fft_magnitude(&audio_in, &mut complex_buffer, &mut magnitudes);
 
-            let raw_freq = analyzer.find_precise_frequency(&magnitudes);
+            // Plage guitare standard : E2 (82 Hz) → E4 (330 Hz) + marges
+            let raw_freq = analyzer.find_precise_frequency(&magnitudes, 60.0, 420.0);
 
             // Applique l'EMA : si un son est détecté, on lisse ; sinon on réinitialise
             smoothed_freq = match (raw_freq, smoothed_freq) {
