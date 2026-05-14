@@ -90,7 +90,7 @@ impl FrequencyAnalyzer {
             }
         }
 
-        if max_mag < 1.0 {  // check if there is a sound
+        if max_mag < 0.01 {  // check if there is a sound
             return None;
         }
 

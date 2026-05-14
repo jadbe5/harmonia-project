@@ -1,6 +1,9 @@
 use eframe::egui;
 use super::left_panel::draw_left_panel;
 use super::right_panel::draw_right_panel;
+use crate::notes::GUITAR;
+use crate::comparaison::cents_deviation;
+use std::sync::{Arc, Mutex};
 
 pub struct StringInfo {
     pub name: &'static str,
@@ -20,19 +23,41 @@ pub const STRINGS: [StringInfo; 7] = [
 pub struct HarmoniaApp {
     pub selected_string: usize,
     pub derror: f32,
+    pub detected_freq: Option<f32>,
+    shared_freq: Arc<Mutex<Option<f32>>>,
 }
 
-impl Default for HarmoniaApp {
-    fn default() -> Self {
+impl HarmoniaApp {
+    pub fn new(shared_freq: Arc<Mutex<Option<f32>>>) -> Self {
         Self {
             selected_string: 6,
             derror: 0.0,
+            detected_freq: None,
+            shared_freq,
         }
     }
 }
 
 impl eframe::App for HarmoniaApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Lire la dernière fréquence détectée par le thread audio
+        if let Ok(lock) = self.shared_freq.try_lock() {
+            self.detected_freq = *lock;
+        }
+
+        // Calculer l'écart en cents si une corde est sélectionnée
+        if self.selected_string < 6 {
+            if let Some(freq) = self.detected_freq {
+                let target = GUITAR[self.selected_string].frequency;
+                self.derror = cents_deviation(freq, target).clamp(-50.0, 50.0);
+            }
+        } else {
+            self.derror = 0.0;
+        }
+
+        // Redessiner en continu pour afficher les mises à jour audio
+        ctx.request_repaint();
+
         let mut style = (*ctx.style()).clone();
         style.visuals.panel_fill = egui::Color32::from_rgb(85, 85, 85);
         ctx.set_style(style);
@@ -42,7 +67,13 @@ impl eframe::App for HarmoniaApp {
             ui.horizontal(|ui| {
                 draw_left_panel(ui, panel_height, &mut self.selected_string);
                 ui.add_space(20.0);
-                draw_right_panel(ui, &STRINGS[self.selected_string].note, &mut self.derror);
+                draw_right_panel(
+                    ui,
+                    &STRINGS[self.selected_string].note,
+                    &mut self.derror,
+                    self.detected_freq,
+                    self.selected_string,
+                );
             });
         });
     }

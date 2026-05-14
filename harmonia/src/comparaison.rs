@@ -35,3 +35,13 @@ pub fn compare_frequency(freq: f32) -> String
         format!("{} est trop aigue", note.name)
     }
 }
+
+/// Retourne l'écart en cents entre la fréquence détectée et la fréquence cible.
+/// Positif = trop aigu, négatif = trop grave. Plage typique : -50..+50
+pub fn cents_deviation(detected: f32, target: f32) -> f32
+{
+    if detected <= 0.0 || target <= 0.0 {
+        return 0.0;
+    }
+    1200.0 * (detected / target).log2()
+}

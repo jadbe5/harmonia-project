@@ -29,7 +29,7 @@ impl Default for AudioConfig
         Self {
             target_sample_rate: 44_100,
             frame_size: 4096,
-            hop_size: 1024,
+            hop_size: 4096, // fenêtres non-chevauchantes → ~10 updates/sec, plus stable
             queue_capacity: 16,
             calibration_frames: 6,
             noise_margin: 2.0,
