@@ -77,53 +77,74 @@ impl FrequencyAnalyzer {
         }
     }
 
-    // found the fundamental frequency using parabolic interpolation
-    // min_hz / max_hz : plage de recherche pour ignorer harmoniques et bruit hors spectre utile
+    // Détecte le fondamental via HPS (Harmonic Product Spectrum).
+    // Contrairement à un simple argmax FFT, HPS résiste aux harmoniques
+    // plus forts que le fondamental (cas typique de la guitare).
+    //
+    // Principe : hps[i] = ∏(k=1..num_harmonics) magnitudes[i*k]
+    // Le produit est maximal là où le fondamental ET ses harmoniques
+    // ont tous de l'énergie, c'est-à-dire à la fréquence fondamentale.
+    //
+    // min_hz / max_hz : plage de recherche (ex. 60-420 Hz pour guitare standard)
     pub fn find_precise_frequency(&self, magnitudes: &[f32], min_hz: f32, max_hz: f32) -> Option<f32> {
-        // Convertir les fréquences Hz en indices de bins FFT
+        // --- 1. Vérifier qu'il y a du son dans la plage utile ---------------
         let min_bin = ((min_hz * self.fft_size as f32 / self.sample_rate) as usize).max(1);
         let max_bin = ((max_hz * self.fft_size as f32 / self.sample_rate) as usize)
-            .min(magnitudes.len() - 2);
+            .min(magnitudes.len() / 5); // /5 car on accède jusqu'à magnitudes[i*5]
 
         if min_bin >= max_bin {
             return None;
         }
 
-        let mut max_idx = min_bin;
-        let mut max_mag = 0.0;
+        let peak_in_range = magnitudes[min_bin..=max_bin]
+            .iter()
+            .cloned()
+            .fold(0.0f32, f32::max);
 
-        for i in min_bin..=max_bin {  // recherche uniquement dans la plage utile
-            if magnitudes[i] > max_mag {
-                max_mag = magnitudes[i];
+        if peak_in_range < 0.01 {  // silence : pas de son détecté
+            return None;
+        }
+
+        // --- 2. Calcul du HPS sur 5 harmoniques -----------------------------
+        const NUM_HARMONICS: usize = 5;
+
+        let mut max_hps = 0.0f32;
+        let mut max_idx = min_bin;
+
+        for i in min_bin..=max_bin {
+            let mut hps = magnitudes[i];
+            for k in 2..=NUM_HARMONICS {
+                let harmonic_idx = i * k;
+                if harmonic_idx < magnitudes.len() {
+                    hps *= magnitudes[harmonic_idx];
+                }
+            }
+            if hps > max_hps {
+                max_hps = hps;
                 max_idx = i;
             }
         }
 
-        if max_mag < 0.01 {  // check if there is a sound
-            return None;
-        }
-
-        if max_idx == 0 || max_idx >= magnitudes.len() - 1 {  // check if it's the edge of the array
+        // --- 3. Interpolation parabolique pour précision sub-bin -------------
+        if max_idx == 0 || max_idx >= magnitudes.len() - 1 {
             let bin_freq = max_idx as f32 * self.sample_rate / self.fft_size as f32;
-            return Some(bin_freq);  // don't do the interpolation
+            return Some(bin_freq);
         }
 
-        let alpha = magnitudes[max_idx - 1]; // left element
-        let beta = magnitudes[max_idx];      // best element
-        let gamma = magnitudes[max_idx + 1]; // right element 
+        let alpha = magnitudes[max_idx - 1]; // bin gauche
+        let beta  = magnitudes[max_idx];     // bin central (pic)
+        let gamma = magnitudes[max_idx + 1]; // bin droit
 
         let denominator = alpha - 2.0 * beta + gamma;
 
-        let p = if denominator.abs() > 1e-6 {    // calculate the gap to have a 0.1Hz precision
-
+        let p = if denominator.abs() > 1e-6 {
             0.5 * (alpha - gamma) / denominator
         } else {
-            0.0 // avoid division by zero
+            0.0
         };
 
         let exact_bin = max_idx as f32 + p;
-
-        let frequency = exact_bin * self.sample_rate / self.fft_size as f32;  //convertion to Hz
+        let frequency = exact_bin * self.sample_rate / self.fft_size as f32;
 
         Some(frequency)
     }
