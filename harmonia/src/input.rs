@@ -7,9 +7,9 @@ use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 pub struct AudioChunk
 {
     pub samples: Vec<f32>,
-    pub _sample_rate: u32,
-    pub _level: f32,
-    pub _threshold: f32,
+    pub sample_rate: u32,
+    pub level: f32,
+    pub threshold: f32,
 }
 
 pub struct AudioConfig
@@ -29,10 +29,12 @@ impl Default for AudioConfig
         Self {
             target_sample_rate: 44_100,
             frame_size: 4096,
-            hop_size: 4096, // fenêtres non-chevauchantes → ~10 updates/sec, plus stable
+            // 1024 = fenêtres chevauchantes : plus réactif pour un accordeur.
+            hop_size: 1024,
             queue_capacity: 16,
             calibration_frames: 6,
-            noise_margin: 2.0,
+            // Seuil plus sensible : évite de devoir jouer très fort.
+            noise_margin: 1.2,
             max_gain: 4.0,
         }
     }
@@ -78,7 +80,7 @@ impl AudioInput
             noise_sum: 0.0,
             noise_count: 0,
             calibrated: false,
-            threshold: 0.01,
+            threshold: 0.001,
         }));
 
         let stream = match selected.sample_format
@@ -110,12 +112,6 @@ impl AudioInput
     {
         self.receiver.recv()
     }
-    /*
-    pub fn try_recv(&self) -> Result<AudioChunk, crossbeam_channel::TryRecvError>
-    {
-        self.receiver.try_recv()
-    }
-    */
 }
 
 fn select_input_config(
@@ -159,7 +155,6 @@ fn select_input_config(
         };
 
         let rate_penalty = chosen_rate.abs_diff(target_sample_rate);
-
         let score = (mono_penalty, format_penalty, rate_penalty);
 
         if best_score.is_none() || score < best_score.unwrap()
@@ -168,7 +163,7 @@ fn select_input_config(
             best_config = Some(SelectedConfig{
                 stream_config: cpal::StreamConfig {
                     channels,
-                   sample_rate: cpal::SampleRate(chosen_rate),
+                    sample_rate: cpal::SampleRate(chosen_rate),
                     buffer_size: cpal::BufferSize::Default,
                 },
                 sample_format,
@@ -208,7 +203,7 @@ where
 fn process_input<T>(
     data: &[T],
     channels: usize,
-    _sample_rate: u32,
+    sample_rate: u32,
     sender: &Sender<AudioChunk>,
     state: &Arc<Mutex<SharedState>>,
     config: &AudioConfig,
@@ -250,23 +245,23 @@ fn process_input<T>(
             .collect::<Vec<f32>>();
 
         remove_dc_offset(&mut samples);
-
-        let _level = average_amplitude(&samples);
+        let level = average_amplitude(&samples);
 
         if !state.calibrated
         {
-            state.noise_sum += _level;
+            state.noise_sum += level;
             state.noise_count += 1;
 
             if state.noise_count >= config.calibration_frames
             {
                 let noise_floor = state.noise_sum / state.noise_count as f32;
-                state.threshold = (noise_floor * config.noise_margin).max(0.005);
+                state.threshold = (noise_floor * config.noise_margin).max(0.001);
                 state.calibrated = true;
             }
         }
 
-        if state.calibrated && _level >= state.threshold
+        // On normalise uniquement les vrais signaux pour éviter d'amplifier le bruit de fond.
+        if state.calibrated && level >= state.threshold
         {
             normalize_gain(&mut samples, config.max_gain);
         }
@@ -274,9 +269,9 @@ fn process_input<T>(
         let chunk = AudioChunk
         {
             samples,
-            _sample_rate,
-            _level,
-            _threshold: state.threshold,
+            sample_rate,
+            level,
+            threshold: state.threshold,
         };
 
         match sender.try_send(chunk)
