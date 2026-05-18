@@ -5,7 +5,6 @@ mod analyser;
 use analyser::FrequencyAnalyzer;
 mod input;
 use input::{AudioConfig, AudioInput};
-use rustfft::num_complex::Complex;
 mod notes;
 mod comparaison;
 
@@ -13,19 +12,14 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 fn main() -> eframe::Result<()> {
-    let sample_rate = 44100.0;
-    let fft_size = 8192;
+    let fft_size = 4096;
 
     // Fréquence partagée entre le thread audio et le GUI
     let shared_freq: Arc<Mutex<Option<f32>>> = Arc::new(Mutex::new(None));
     let shared_freq_audio = Arc::clone(&shared_freq);
 
-    // Thread audio : capture + FFT en arrière-plan
+    // Thread audio : capture + analyse en arrière-plan
     thread::spawn(move || {
-        let mut analyzer = FrequencyAnalyzer::new(sample_rate, fft_size);
-        let mut complex_buffer = vec![Complex { re: 0.0, im: 0.0 }; fft_size];
-        let mut magnitudes = vec![0.0f32; fft_size / 2];
-
         let audio = match AudioInput::start(AudioConfig::default()) {
             Ok(a) => a,
             Err(e) => {
@@ -36,10 +30,10 @@ fn main() -> eframe::Result<()> {
 
         println!("Capture audio démarrée");
 
-        // EMA : lissage exponentiel de la fréquence détectée
-        // alpha proche de 0 = très lisse mais lent ; proche de 1 = réactif mais instable
-        let alpha: f32 = 0.2;
+        let alpha: f32 = 0.25;
         let mut smoothed_freq: Option<f32> = None;
+        let mut analyzer: Option<FrequencyAnalyzer> = None;
+        let mut current_sample_rate: u32 = 0;
 
         loop {
             let chunk = match audio.recv() {
@@ -47,28 +41,33 @@ fn main() -> eframe::Result<()> {
                 Err(_) => break,
             };
 
-            let mut audio_in = chunk.samples;
-            analyzer.apply_window(&mut audio_in);
-            analyzer.compute_fft_magnitude(&audio_in, &mut complex_buffer, &mut magnitudes);
-            
-            if let Some(freq) = analyzer.find_precise_frequency(&magnitudes) {
+            // Très important : on utilise le vrai sample rate fourni par le micro.
+            // Si le micro est en 48000 Hz mais qu'on force 44100 Hz, les fréquences sont fausses.
+            if analyzer.is_none() || current_sample_rate != chunk.sample_rate {
+                current_sample_rate = chunk.sample_rate;
+                analyzer = Some(FrequencyAnalyzer::new(chunk.sample_rate as f32, fft_size));
+                println!("Sample rate audio utilisé : {} Hz", chunk.sample_rate);
+            }
 
-            let raw_freq = analyzer.find_precise_frequency(&magnitudes);
+            let analyzer = match analyzer.as_ref() {
+                Some(a) => a,
+                None => continue,
+            };
 
-            // Applique l'EMA : si un son est détecté, on lisse ; sinon on réinitialise
+            let raw_freq = analyzer.find_frequency_from_samples(&chunk.samples);
+
             smoothed_freq = match (raw_freq, smoothed_freq) {
                 (Some(new), Some(prev)) => Some(alpha * new + (1.0 - alpha) * prev),
-                (Some(new), None)       => Some(new), // première détection : pas de lissage
-                (None, _)               => None,       // silence : on remet à zéro
+                (Some(new), None) => Some(new),
+                (None, _) => None,
             };
 
             if let Some(f) = smoothed_freq {
-                println!("{:.2}Hz", f);
+                println!("{:.2} Hz", f);
             }
 
             if let Ok(mut lock) = shared_freq_audio.lock() {
                 *lock = smoothed_freq;
-            }
             }
         }
     });
