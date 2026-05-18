@@ -51,11 +51,32 @@ impl FrequencyAnalyzer {
 
     // use Hann window to avoid spectral leakage
     pub fn apply_window(&self, audio_buffer: &mut [f32]) {
-        assert_eq!(audio_buffer.len(), self.window_table.len(), //check if audio_buffer size match with window_table.len
+        assert_eq!(
+            audio_buffer.len(),
+            self.window_table.len(),
             "Audio buffer size ({}) doesn't match with window_table size({}).",
-            audio_buffer.len(), self.window_table.len());
+            audio_buffer.len(),
+            self.window_table.len()
+        );
 
-        for (sample, window_value) in audio_buffer.iter_mut().zip(&self.window_table) {  
+        // =========================
+        // RETRAIT DU DC OFFSET
+        // =========================
+
+        let mean =
+            audio_buffer.iter().sum::<f32>() / audio_buffer.len() as f32;
+    
+        for sample in audio_buffer.iter_mut() {
+            *sample -= mean;
+        }
+
+        // =========================
+        // APPLICATION FENÊTRE HANN
+        // =========================
+
+        for (sample, window_value) in
+            audio_buffer.iter_mut().zip(&self.window_table)
+        {
             *sample *= window_value;
         }
     }
@@ -73,7 +94,7 @@ impl FrequencyAnalyzer {
 
         for (mag, complex) in magnitudes.iter_mut().zip(complex_buffer[..half_size].iter()) {  //calculates the amplitude of each frequency
 
-            *mag = complex.norm();
+            *mag = complex.norm_sqr() / self.fft_size as f32;
         }
     }
 
@@ -219,7 +240,10 @@ pub fn find_precise_frequency(&self, magnitudes: &[f32]) -> Option<f32> {
         }
         
         // Si aucun son significatif n'est détecté, on retourne None (silence)
-        if max_raw_mag < 0.001 { 
+        let average =
+            magnitudes.iter().sum::<f32>() / magnitudes.len() as f32;
+
+        if max_raw_mag < average * 5.0 {
             return None;
         }
 
@@ -241,10 +265,11 @@ pub fn find_precise_frequency(&self, magnitudes: &[f32]) -> Option<f32> {
 
         for i in bin_low..=hss_bin_high {
             // Addition des harmoniques avec tolérance de voisinage
-            let sum = get_mag_around(i) 
-                    + get_mag_around(i * 2) 
-                    + get_mag_around(i * 3) 
-                    + get_mag_around(i * 4);
+            let sum = 
+                get_mag_around(i) 
+                + get_mag_around(i * 2) * 0.5
+                + get_mag_around(i * 3) * 0.33
+                + get_mag_around(i * 4) * 0.25;
             
             hss_values[i] = sum;
             if sum > max_hss_value {
@@ -255,25 +280,18 @@ pub fn find_precise_frequency(&self, magnitudes: &[f32]) -> Option<f32> {
         // 3. SÉLECTION DU PREMIER PIC SIGNIFICATIF (Anti-octave)
         // On cherche la fondamentale la plus basse qui a au moins 50% de l'énergie maximale
         let mut fundamental_idx = bin_low;
-        let threshold = max_hss_value * 0.50; 
-        let mut found = false;
+        let mut best_hss = 0.0;
 
         for i in bin_low..=hss_bin_high {
-            if hss_values[i] >= threshold {
-                // On s'assure que c'est un "sommet" (pic local) et pas juste une pente
-                let is_local_max = (i == bin_low || hss_values[i] >= hss_values[i - 1]) 
-                                && (i == hss_bin_high || hss_values[i] >= hss_values[i + 1]);
-                
-                if is_local_max {
-                    fundamental_idx = i;
-                    found = true;
-                    break; // On s'arrête au premier pic trouvé (la fondamentale) !
-                }
-            }
-        }
 
-        if !found {
-            return None;
+            let is_local_max =
+                (i == bin_low || hss_values[i] >= hss_values[i - 1])
+                && (i == hss_bin_high || hss_values[i] >= hss_values[i + 1]);
+
+            if is_local_max && hss_values[i] > best_hss {
+                best_hss = hss_values[i];
+                fundamental_idx = i;
+            }
         }
 
         // 4. INTERPOLATION PARABOLIQUE
@@ -283,9 +301,23 @@ pub fn find_precise_frequency(&self, magnitudes: &[f32]) -> Option<f32> {
             return Some(bin_freq);
         }
 
-        let alpha = magnitudes[fundamental_idx - 1];
-        let beta  = magnitudes[fundamental_idx];
-        let gamma = magnitudes[fundamental_idx + 1];
+        let mut peak_idx = fundamental_idx;
+
+        let search_start = peak_idx.saturating_sub(2);
+        let search_end = (peak_idx + 2).min(magnitudes.len() - 1);
+
+        let mut max_mag = 0.0;
+
+        for i in search_start..=search_end {
+            if magnitudes[i] > max_mag {
+                max_mag = magnitudes[i];
+                peak_idx = i;
+            }
+        }
+
+        let alpha = magnitudes[peak_idx - 1];
+        let beta  = magnitudes[peak_idx];
+        let gamma = magnitudes[peak_idx + 1];
 
         let denominator = alpha - 2.0 * beta + gamma;
 
@@ -296,7 +328,7 @@ pub fn find_precise_frequency(&self, magnitudes: &[f32]) -> Option<f32> {
         };
 
         // Calcul final de la fréquence exacte
-        let exact_bin = fundamental_idx as f32 + p;
+        let exact_bin = peak_idx as f32 + p;
         let frequency = exact_bin * self.sample_rate / self.fft_size as f32;
 
         Some(frequency)

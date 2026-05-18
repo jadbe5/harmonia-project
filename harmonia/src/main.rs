@@ -14,7 +14,7 @@ use std::thread;
 
 fn main() -> eframe::Result<()> {
     let sample_rate = 44100.0;
-    let fft_size = 8192;
+    let fft_size = 4096;
 
     // Fréquence partagée entre le thread audio et le GUI
     let shared_freq: Arc<Mutex<Option<f32>>> = Arc::new(Mutex::new(None));
