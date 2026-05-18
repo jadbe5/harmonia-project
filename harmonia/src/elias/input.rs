@@ -4,16 +4,14 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 
-pub struct AudioChunk
-{
+pub struct AudioChunk {
     pub samples: Vec<f32>,
     pub sample_rate: u32,
     pub level: f32,
     pub threshold: f32,
 }
 
-pub struct AudioConfig
-{
+pub struct AudioConfig {
     pub target_sample_rate: u32,
     pub frame_size: usize,
     pub hop_size: usize,
@@ -23,31 +21,26 @@ pub struct AudioConfig
     pub max_gain: f32,
 }
 
-impl Default for AudioConfig
-{
+impl Default for AudioConfig {
     fn default() -> Self {
         Self {
             target_sample_rate: 44_100,
             frame_size: 4096,
-            // 1024 = fenêtres chevauchantes : plus réactif pour un accordeur.
             hop_size: 1024,
             queue_capacity: 16,
             calibration_frames: 6,
-            // Seuil plus sensible : évite de devoir jouer très fort.
             noise_margin: 1.2,
             max_gain: 4.0,
         }
     }
 }
 
-pub struct AudioInput
-{
+pub struct AudioInput {
     _stream: cpal::Stream,
     receiver: Receiver<AudioChunk>,
 }
 
-struct SharedState
-{
+struct SharedState {
     rolling: VecDeque<f32>,
     noise_sum: f32,
     noise_count: usize,
@@ -55,18 +48,14 @@ struct SharedState
     threshold: f32,
 }
 
-struct SelectedConfig
-{
+struct SelectedConfig {
     stream_config: cpal::StreamConfig,
     sample_format: cpal::SampleFormat,
 }
 
-impl AudioInput
-{
-    pub fn start(config: AudioConfig) -> Result<Self, Box<dyn std::error::Error>>
-    {
-        if config.frame_size == 0 || config.hop_size == 0 || config.hop_size > config.frame_size
-        {
+impl AudioInput {
+    pub fn start(config: AudioConfig) -> Result<Self, Box<dyn std::error::Error>> {
+        if config.frame_size == 0 || config.hop_size == 0 || config.hop_size > config.frame_size {
             return Err("invalid audio config".into());
         }
 
@@ -75,7 +64,7 @@ impl AudioInput
         let selected = select_input_config(&device, config.target_sample_rate)?;
         let (sender, receiver) = bounded(config.queue_capacity);
 
-        let state = Arc::new(Mutex::new(SharedState{
+        let state = Arc::new(Mutex::new(SharedState {
             rolling: VecDeque::with_capacity(config.frame_size * 2),
             noise_sum: 0.0,
             noise_count: 0,
@@ -83,18 +72,14 @@ impl AudioInput
             threshold: 0.001,
         }));
 
-        let stream = match selected.sample_format
-        {
-            cpal::SampleFormat::F32 =>
-            {
+        let stream = match selected.sample_format {
+            cpal::SampleFormat::F32 => {
                 build_stream::<f32>(&device, &selected.stream_config, sender, state, config)?
             }
-            cpal::SampleFormat::I16 =>
-            {
+            cpal::SampleFormat::I16 => {
                 build_stream::<i16>(&device, &selected.stream_config, sender, state, config)?
             }
-            cpal::SampleFormat::U16 =>
-            {
+            cpal::SampleFormat::U16 => {
                 build_stream::<u16>(&device, &selected.stream_config, sender, state, config)?
             }
             _ => return Err("unsupported sample format".into()),
@@ -108,8 +93,7 @@ impl AudioInput
         })
     }
 
-    pub fn recv(&self) -> Result<AudioChunk, crossbeam_channel::RecvError>
-    {
+    pub fn recv(&self) -> Result<AudioChunk, crossbeam_channel::RecvError> {
         self.receiver.recv()
     }
 }
@@ -117,50 +101,39 @@ impl AudioInput
 fn select_input_config(
     device: &cpal::Device,
     target_sample_rate: u32,
-) -> Result<SelectedConfig, Box<dyn std::error::Error>>
-{
+) -> Result<SelectedConfig, Box<dyn std::error::Error>> {
     let configs = device.supported_input_configs()?;
 
     let mut best_score: Option<(u32, u32, u32)> = None;
     let mut best_config: Option<SelectedConfig> = None;
 
-    for range in configs
-    {
+    for range in configs {
         let channels = range.channels();
         let sample_format = range.sample_format();
         let min_rate = range.min_sample_rate().0;
         let max_rate = range.max_sample_rate().0;
 
-        let chosen_rate = if target_sample_rate < min_rate
-        {
+        let chosen_rate = if target_sample_rate < min_rate {
             min_rate
-        }
-        else if target_sample_rate > max_rate
-        {
+        } else if target_sample_rate > max_rate {
             max_rate
-        }
-        else
-        {
+        } else {
             target_sample_rate
         };
 
         let mono_penalty = if channels == 1 { 0 } else { 100 + channels as u32 };
-
-        let format_penalty = match sample_format
-        {
+        let format_penalty = match sample_format {
             cpal::SampleFormat::F32 => 0,
             cpal::SampleFormat::I16 => 1,
             cpal::SampleFormat::U16 => 2,
             _ => 10,
         };
-
         let rate_penalty = chosen_rate.abs_diff(target_sample_rate);
         let score = (mono_penalty, format_penalty, rate_penalty);
 
-        if best_score.is_none() || score < best_score.unwrap()
-        {
+        if best_score.is_none() || score < best_score.unwrap() {
             best_score = Some(score);
-            best_config = Some(SelectedConfig{
+            best_config = Some(SelectedConfig {
                 stream_config: cpal::StreamConfig {
                     channels,
                     sample_rate: cpal::SampleRate(chosen_rate),
@@ -211,32 +184,26 @@ fn process_input<T>(
     T: cpal::Sample,
     f32: cpal::FromSample<T>,
 {
-    if channels == 0
-    {
+    if channels == 0 {
         return;
     }
 
-    let mut state = match state.lock()
-    {
+    let mut state = match state.lock() {
         Ok(guard) => guard,
         Err(_) => return,
     };
 
-    for frame in data.chunks(channels)
-    {
+    for frame in data.chunks(channels) {
         let mut mono = 0.0;
-        for &sample in frame
-        {
+        for &sample in frame {
             let value: f32 = sample.to_sample::<f32>();
             mono += value;
         }
-
         mono /= frame.len() as f32;
         state.rolling.push_back(mono);
     }
 
-    while state.rolling.len() >= config.frame_size
-    {
+    while state.rolling.len() >= config.frame_size {
         let mut samples = state
             .rolling
             .iter()
@@ -247,35 +214,29 @@ fn process_input<T>(
         remove_dc_offset(&mut samples);
         let level = average_amplitude(&samples);
 
-        if !state.calibrated
-        {
+        if !state.calibrated {
             state.noise_sum += level;
             state.noise_count += 1;
 
-            if state.noise_count >= config.calibration_frames
-            {
+            if state.noise_count >= config.calibration_frames {
                 let noise_floor = state.noise_sum / state.noise_count as f32;
                 state.threshold = (noise_floor * config.noise_margin).max(0.001);
                 state.calibrated = true;
             }
         }
 
-        // On normalise uniquement les vrais signaux pour éviter d'amplifier le bruit de fond.
-        if state.calibrated && level >= state.threshold
-        {
+        if state.calibrated && level >= state.threshold {
             normalize_gain(&mut samples, config.max_gain);
         }
 
-        let chunk = AudioChunk
-        {
+        let chunk = AudioChunk {
             samples,
             sample_rate,
             level,
             threshold: state.threshold,
         };
 
-        match sender.try_send(chunk)
-        {
+        match sender.try_send(chunk) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {}
             Err(TrySendError::Disconnected(_)) => return,
@@ -285,61 +246,47 @@ fn process_input<T>(
     }
 }
 
-fn advance_buffer(buffer: &mut VecDeque<f32>, hop_size: usize)
-{
-    for _ in 0..hop_size
-    {
+fn advance_buffer(buffer: &mut VecDeque<f32>, hop_size: usize) {
+    for _ in 0..hop_size {
         buffer.pop_front();
     }
 }
 
-fn average_amplitude(samples: &[f32]) -> f32
-{
+fn average_amplitude(samples: &[f32]) -> f32 {
     let mut sum = 0.0;
-
-    for &sample in samples
-    {
+    for &sample in samples {
         sum += sample.abs();
     }
     sum / samples.len() as f32
 }
 
-fn remove_dc_offset(samples: &mut [f32])
-{
+fn remove_dc_offset(samples: &mut [f32]) {
     let mut mean = 0.0;
-    for &sample in samples.iter()
-    {
+    for &sample in samples.iter() {
         mean += sample;
     }
-
     mean /= samples.len() as f32;
 
-    for sample in samples.iter_mut()
-    {
+    for sample in samples.iter_mut() {
         *sample -= mean;
     }
 }
 
-fn normalize_gain(samples: &mut [f32], max_gain: f32)
-{
+fn normalize_gain(samples: &mut [f32], max_gain: f32) {
     let mut peak = 0.0;
-    for &sample in samples.iter()
-    {
+    for &sample in samples.iter() {
         let value = sample.abs();
-        if value > peak
-        {
+        if value > peak {
             peak = value;
         }
     }
 
-    if peak < 1e-6
-    {
+    if peak < 1e-6 {
         return;
     }
 
     let gain = (0.8 / peak).min(max_gain);
-    for sample in samples.iter_mut()
-    {
+    for sample in samples.iter_mut() {
         *sample = (*sample * gain).clamp(-1.0, 1.0);
     }
 }

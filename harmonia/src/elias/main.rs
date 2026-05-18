@@ -8,17 +8,16 @@ use input::{AudioConfig, AudioInput};
 mod notes;
 mod comparaison;
 
+use comparaison::{analyze_frequency, compare_frequency};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 fn main() -> eframe::Result<()> {
     let fft_size = 4096;
 
-    // Fréquence partagée entre le thread audio et le GUI
     let shared_freq: Arc<Mutex<Option<f32>>> = Arc::new(Mutex::new(None));
     let shared_freq_audio = Arc::clone(&shared_freq);
 
-    // Thread audio : capture + analyse en arrière-plan
     thread::spawn(move || {
         let audio = match AudioInput::start(AudioConfig::default()) {
             Ok(a) => a,
@@ -30,10 +29,11 @@ fn main() -> eframe::Result<()> {
 
         println!("Capture audio démarrée");
 
-        let alpha: f32 = 0.25;
-        let mut smoothed_freq: Option<f32> = None;
         let mut analyzer: Option<FrequencyAnalyzer> = None;
-        let mut current_sample_rate: u32 = 0;
+        let mut analyzer_sample_rate: u32 = 0;
+
+        let alpha: f32 = 0.35;
+        let mut smoothed_freq: Option<f32> = None;
 
         loop {
             let chunk = match audio.recv() {
@@ -41,11 +41,9 @@ fn main() -> eframe::Result<()> {
                 Err(_) => break,
             };
 
-            // Très important : on utilise le vrai sample rate fourni par le micro.
-            // Si le micro est en 48000 Hz mais qu'on force 44100 Hz, les fréquences sont fausses.
-            if analyzer.is_none() || current_sample_rate != chunk.sample_rate {
-                current_sample_rate = chunk.sample_rate;
+            if analyzer.is_none() || analyzer_sample_rate != chunk.sample_rate {
                 analyzer = Some(FrequencyAnalyzer::new(chunk.sample_rate as f32, fft_size));
+                analyzer_sample_rate = chunk.sample_rate;
                 println!("Sample rate audio utilisé : {} Hz", chunk.sample_rate);
             }
 
@@ -54,16 +52,34 @@ fn main() -> eframe::Result<()> {
                 None => continue,
             };
 
-            let raw_freq = analyzer.find_frequency_from_samples(&chunk.samples);
+            let raw_freq = if chunk.level >= chunk.threshold {
+                analyzer.find_frequency(&chunk.samples)
+            } else {
+                None
+            };
 
             smoothed_freq = match (raw_freq, smoothed_freq) {
-                (Some(new), Some(prev)) => Some(alpha * new + (1.0 - alpha) * prev),
+                (Some(new), Some(prev)) => {
+                    if new > prev * 1.8 || new < prev * 0.55 {
+                        Some(new)
+                    } else {
+                        Some(alpha * new + (1.0 - alpha) * prev)
+                    }
+                }
                 (Some(new), None) => Some(new),
                 (None, _) => None,
             };
 
             if let Some(f) = smoothed_freq {
-                println!("{:.2} Hz", f);
+                if let Some(result) = analyze_frequency(f) {
+                    println!(
+                        "{} | cible {:.2} Hz | détecté {:.2} Hz | écart {:+.1} cents",
+                        compare_frequency(f),
+                        result.target_frequency,
+                        result.detected_frequency,
+                        result.cents
+                    );
+                }
             }
 
             if let Ok(mut lock) = shared_freq_audio.lock() {
