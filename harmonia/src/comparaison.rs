@@ -22,17 +22,19 @@ pub fn closest_note(freq: f32) -> &'static Note
 pub fn compare_frequency(freq: f32) -> String 
 {
     let note = closest_note(freq);
-    if (freq - note.frequency).abs() < 0.5 
+    if (freq - note.frequency).abs() < 1.5 
     {
         format!("{} parfaite !", note.name)
     }
     else if freq < note.frequency 
     {
         format!("{} est trop grave", note.name)
+        //format!("freq joué vs freq ref: {} vs {}", freq, note.frequency)
     } 
     else 
     {
         format!("{} est trop aigue", note.name)
+        //format!("freq joué vs freq ref: {} vs {}", freq, note.frequency)
     }
 }
 

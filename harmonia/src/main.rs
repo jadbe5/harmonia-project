@@ -14,7 +14,7 @@ use std::thread;
 
 fn main() -> eframe::Result<()> {
     let sample_rate = 44100.0;
-    let fft_size = 4096;
+    let fft_size = 8192;
 
     // Fréquence partagée entre le thread audio et le GUI
     let shared_freq: Arc<Mutex<Option<f32>>> = Arc::new(Mutex::new(None));
@@ -50,6 +50,8 @@ fn main() -> eframe::Result<()> {
             let mut audio_in = chunk.samples;
             analyzer.apply_window(&mut audio_in);
             analyzer.compute_fft_magnitude(&audio_in, &mut complex_buffer, &mut magnitudes);
+            
+            if let Some(freq) = analyzer.find_precise_frequency(&magnitudes) {
 
             let raw_freq = analyzer.find_precise_frequency(&magnitudes);
 
@@ -66,6 +68,7 @@ fn main() -> eframe::Result<()> {
 
             if let Ok(mut lock) = shared_freq_audio.lock() {
                 *lock = smoothed_freq;
+            }
             }
         }
     });
