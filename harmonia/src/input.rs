@@ -70,9 +70,6 @@ impl AudioInput
 
         let host = cpal::default_host();
         let device = host.default_input_device().ok_or("no input device found")?;
-        if let Ok(name) = device.name() {
-            println!("🎙️ TrueTone utilise le micro : {}", name);
-        }
         let selected = select_input_config(&device, config.target_sample_rate)?;
         let (sender, receiver) = bounded(config.queue_capacity);
 
