@@ -5,34 +5,21 @@ mod analyser;
 use analyser::FrequencyAnalyzer;
 mod input;
 use input::{AudioConfig, AudioInput};
-use rustfft::num_complex::Complex;
 mod notes;
 mod comparaison;
 
+use comparaison::{analyze_frequency, compare_frequency};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 fn main() -> eframe::Result<()> {
-    let sample_rate = 44100.0;
-    let fft_size = 8192;
+    let fft_size = 4096;
 
-    // Fréquence partagée entre le thread audio et le GUI
     let shared_freq: Arc<Mutex<Option<f32>>> = Arc::new(Mutex::new(None));
     let shared_freq_audio = Arc::clone(&shared_freq);
 
-    // Thread audio : capture + FFT en arrière-plan
     thread::spawn(move || {
-        let mut analyzer = FrequencyAnalyzer::new(sample_rate, fft_size);
-        let mut complex_buffer = vec![Complex { re: 0.0, im: 0.0 }; fft_size];
-        let mut magnitudes = vec![0.0f32; fft_size / 2];
-
-        let custom_config = AudioConfig {
-            frame_size: 8192, // <-- Demande explicitement des blocs de 8192 échantillons
-            hop_size: 2048,   // <-- Le pas d'avancement (2048 conserve le ratio de chevauchement de 25%)
-            ..AudioConfig::default() // Conserve les autres valeurs par défaut (sample rate, gain, etc.)
-        };
-
-        let audio = match AudioInput::start(custom_config) {
+        let audio = match AudioInput::start(AudioConfig::default()) {
             Ok(a) => a,
             Err(e) => {
                 eprintln!("Erreur audio : {}", e);
@@ -42,9 +29,10 @@ fn main() -> eframe::Result<()> {
 
         println!("Capture audio démarrée");
 
-        // EMA : lissage exponentiel de la fréquence détectée
-        // alpha proche de 0 = très lisse mais lent ; proche de 1 = réactif mais instable
-        let alpha: f32 = 0.2;
+        let mut analyzer: Option<FrequencyAnalyzer> = None;
+        let mut analyzer_sample_rate: u32 = 0;
+
+        let alpha: f32 = 0.35;
         let mut smoothed_freq: Option<f32> = None;
 
         loop {
@@ -53,22 +41,45 @@ fn main() -> eframe::Result<()> {
                 Err(_) => break,
             };
 
-            let mut audio_in = chunk.samples;
-            analyzer.apply_window(&mut audio_in);
-            analyzer.compute_fft_magnitude(&audio_in, &mut complex_buffer, &mut magnitudes);
+            if analyzer.is_none() || analyzer_sample_rate != chunk.sample_rate {
+                analyzer = Some(FrequencyAnalyzer::new(chunk.sample_rate as f32, fft_size));
+                analyzer_sample_rate = chunk.sample_rate;
+                println!("Sample rate audio utilisé : {} Hz", chunk.sample_rate);
+            }
 
-            // On appelle la fonction UNE SEULE FOIS pour éviter de gaspiller du CPU
-            let raw_freq = analyzer.find_precise_frequency(&magnitudes);
+            let analyzer = match analyzer.as_ref() {
+                Some(a) => a,
+                None => continue,
+            };
 
-            // Applique l'EMA : si un son est détecté, on lisse ; sinon on réinitialise directement à None
+            let raw_freq = if chunk.level >= chunk.threshold {
+                analyzer.find_frequency(&chunk.samples)
+            } else {
+                None
+            };
+
             smoothed_freq = match (raw_freq, smoothed_freq) {
-                (Some(new), Some(prev)) => Some(alpha * new + (1.0 - alpha) * prev),
-                (Some(new), None)       => Some(new), // première détection
-                (None, _)               => None,      // silence : on nettoie l'écran !
+                (Some(new), Some(prev)) => {
+                    if new > prev * 1.8 || new < prev * 0.55 {
+                        Some(new)
+                    } else {
+                        Some(alpha * new + (1.0 - alpha) * prev)
+                    }
+                }
+                (Some(new), None) => Some(new),
+                (None, _) => None,
             };
 
             if let Some(f) = smoothed_freq {
-                println!("{:.2}Hz", f);
+                if let Some(result) = analyze_frequency(f) {
+                    println!(
+                        "{} | cible {:.2} Hz | détecté {:.2} Hz | écart {:+.1} cents",
+                        compare_frequency(f),
+                        result.target_frequency,
+                        result.detected_frequency,
+                        result.cents
+                    );
+                }
             }
 
             if let Ok(mut lock) = shared_freq_audio.lock() {
