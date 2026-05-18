@@ -49,13 +49,13 @@ impl FrequencyAnalyzer {
         }
     }
 
-    // use Hann window to avoid spectral leakage
+
     pub fn apply_window(&self, audio_buffer: &mut [f32]) {
         assert_eq!(audio_buffer.len(), self.window_table.len(), //check if audio_buffer size match with window_table.len
             "Audio buffer size ({}) doesn't match with window_table size({}).",
             audio_buffer.len(), self.window_table.len());
 
-        for (sample, window_value) in audio_buffer.iter_mut().zip(&self.window_table) {  
+        for (sample, window_value) in audio_buffer.iter_mut().zip(&self.window_table) {
             *sample *= window_value;
         }
     }
@@ -67,9 +67,9 @@ impl FrequencyAnalyzer {
             complex.im = 0.0;
         }
 
-        self.fft.process_with_scratch(complex_buffer, &mut self.scratch_buffer);  // execution of FFT 
+        self.fft.process_with_scratch(complex_buffer, &mut self.scratch_buffer);  // execution of FFT
 
-        let half_size = self.fft_size / 2;  
+        let half_size = self.fft_size / 2;
 
         for (mag, complex) in magnitudes.iter_mut().zip(complex_buffer[..half_size].iter()) {  //calculates the amplitude of each frequency
 
@@ -77,35 +77,100 @@ impl FrequencyAnalyzer {
         }
     }
 
-    // found the fundamental frequency using parabolic interpolation
-    /*
+
     pub fn find_precise_frequency(&self, magnitudes: &[f32]) -> Option<f32> {
+        // Bornes de recherche de la guitare : ~70 Hz à ~380 Hz
         let bin_low  = (70.0  * self.fft_size as f32 / self.sample_rate).ceil() as usize;
         let bin_high = (380.0 * self.fft_size as f32 / self.sample_rate).ceil() as usize;
-        let bin_high = bin_high.min(magnitudes.len() - 2);
+        
+        // On analyse jusqu'à 4 harmoniques
+        let num_harmonics = 4;
+        let hss_bin_high = bin_high.min((magnitudes.len() - 1) / num_harmonics);
 
-        let mut max_idx = bin_low;
-        let mut max_mag = 0.0f32;
-
-        for (i, &mag) in magnitudes[bin_low..bin_high].iter().enumerate() {
-            if mag > max_mag {
-                max_mag = mag;
-                max_idx = i + bin_low;
-            }
-        }
-
-        if max_mag < 0.001 {
+        if bin_low >= hss_bin_high {
             return None;
         }
 
-        if max_idx == 0 || max_idx >= magnitudes.len() - 1 {
-            let bin_freq = max_idx as f32 * self.sample_rate / self.fft_size as f32;
+        // 1. SEUIL DE SÉCURITÉ GLOBAL (Vérifie si le micro capte du son)
+        let mut max_raw_mag = 0.0f32;
+        for &mag in &magnitudes[bin_low..bin_high.min(magnitudes.len())] {
+            if mag > max_raw_mag {
+                max_raw_mag = mag;
+            }
+        }
+        
+        // Si aucun son significatif n'est détecté, on retourne None (silence)
+        //if max_raw_mag < 0.000001 { 
+          //  return None;
+        //}
+
+        // 2. ALGORITHME HSS "FLOU" (Fuzzy Harmonic Sum Spectrum)
+        let mut hss_values = vec![0.0f32; hss_bin_high + 1];
+        let mut max_hss_value = 0.0f32;
+
+        // Fonction locale (closure) pour tolérer un léger décalage de bin
+        let get_mag_around = |bin: usize| -> f32 {
+            let mut max_m = magnitudes[bin];
+            if bin > 0 && magnitudes[bin - 1] > max_m { 
+                max_m = magnitudes[bin - 1]; 
+            }
+            if bin + 1 < magnitudes.len() && magnitudes[bin + 1] > max_m { 
+                max_m = magnitudes[bin + 1]; 
+            }
+            max_m
+        };
+
+        for i in bin_low..=hss_bin_high {
+            // Addition des harmoniques avec tolérance de voisinage
+            let sum = get_mag_around(i) 
+                    + get_mag_around(i * 2) 
+                    + get_mag_around(i * 3) 
+                    + get_mag_around(i * 4);
+            
+            hss_values[i] = sum;
+            if sum > max_hss_value {
+                max_hss_value = sum;
+            }
+        }
+
+        if max_hss_value < 1e-4 {
+            return None;
+        }
+
+        // 3. SÉLECTION DU PREMIER PIC SIGNIFICATIF (Anti-octave)
+        // On cherche la fondamentale la plus basse qui a au moins 50% de l'énergie maximale
+        let mut fundamental_idx = bin_low;
+        let threshold = max_hss_value * 0.50; 
+        let mut found = false;
+
+        for i in bin_low..=hss_bin_high {
+            if hss_values[i] >= threshold {
+                // On s'assure que c'est un "sommet" (pic local) et pas juste une pente
+                let is_local_max = (i == bin_low || hss_values[i] >= hss_values[i - 1]) 
+                                && (i == hss_bin_high || hss_values[i] >= hss_values[i + 1]);
+                
+                if is_local_max {
+                    fundamental_idx = i;
+                    found = true;
+                    break; // On s'arrête au premier pic trouvé (la fondamentale) !
+                }
+            }
+        }
+
+        if !found {
+            return None;
+        }
+
+        // 4. INTERPOLATION PARABOLIQUE
+        // On retourne sur le spectre original "magnitudes" pour affiner la précision
+        if fundamental_idx == 0 || fundamental_idx >= magnitudes.len() - 1 {
+            let bin_freq = fundamental_idx as f32 * self.sample_rate / self.fft_size as f32;
             return Some(bin_freq);
         }
 
-        let alpha = magnitudes[max_idx - 1];
-        let beta  = magnitudes[max_idx];
-        let gamma = magnitudes[max_idx + 1];
+        let alpha = magnitudes[fundamental_idx - 1];
+        let beta  = magnitudes[fundamental_idx];
+        let gamma = magnitudes[fundamental_idx + 1];
 
         let denominator = alpha - 2.0 * beta + gamma;
 
@@ -115,13 +180,12 @@ impl FrequencyAnalyzer {
             0.0
         };
 
-        let exact_bin = max_idx as f32 + p;
+        // Calcul final de la fréquence exacte
+        let exact_bin = fundamental_idx as f32 + p;
         let frequency = exact_bin * self.sample_rate / self.fft_size as f32;
 
         Some(frequency)
     }
-        */
-
         /*
         pub fn find_precise_frequency(&self, magnitudes: &[f32]) -> Option<f32> {
         // Bornes de recherche pour la guitare (70 Hz à 380 Hz)
@@ -197,7 +261,8 @@ impl FrequencyAnalyzer {
 
 */
 
-pub fn find_precise_frequency(&self, magnitudes: &[f32]) -> Option<f32> {
+/*
+   pub fn find_precise_frequency(&self, magnitudes: &[f32]) -> Option<f32> {
         // Bornes de recherche de la guitare : ~70 Hz à ~380 Hz
         let bin_low  = (70.0  * self.fft_size as f32 / self.sample_rate).ceil() as usize;
         let bin_high = (380.0 * self.fft_size as f32 / self.sample_rate).ceil() as usize;
@@ -301,6 +366,8 @@ pub fn find_precise_frequency(&self, magnitudes: &[f32]) -> Option<f32> {
 
         Some(frequency)
     }
+*/
+
     pub fn hz_to_note(&self, frequency: f32) -> Note {
         let note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 

@@ -26,7 +26,13 @@ fn main() -> eframe::Result<()> {
         let mut complex_buffer = vec![Complex { re: 0.0, im: 0.0 }; fft_size];
         let mut magnitudes = vec![0.0f32; fft_size / 2];
 
-        let audio = match AudioInput::start(AudioConfig::default()) {
+        let custom_config = AudioConfig {
+            frame_size: 8192, // <-- Demande explicitement des blocs de 8192 échantillons
+            hop_size: 2048,   // <-- Le pas d'avancement (2048 conserve le ratio de chevauchement de 25%)
+            ..AudioConfig::default() // Conserve les autres valeurs par défaut (sample rate, gain, etc.)
+        };
+
+        let audio = match AudioInput::start(custom_config) {
             Ok(a) => a,
             Err(e) => {
                 eprintln!("Erreur audio : {}", e);
@@ -50,16 +56,15 @@ fn main() -> eframe::Result<()> {
             let mut audio_in = chunk.samples;
             analyzer.apply_window(&mut audio_in);
             analyzer.compute_fft_magnitude(&audio_in, &mut complex_buffer, &mut magnitudes);
-            
-            if let Some(freq) = analyzer.find_precise_frequency(&magnitudes) {
 
+            // On appelle la fonction UNE SEULE FOIS pour éviter de gaspiller du CPU
             let raw_freq = analyzer.find_precise_frequency(&magnitudes);
 
-            // Applique l'EMA : si un son est détecté, on lisse ; sinon on réinitialise
+            // Applique l'EMA : si un son est détecté, on lisse ; sinon on réinitialise directement à None
             smoothed_freq = match (raw_freq, smoothed_freq) {
                 (Some(new), Some(prev)) => Some(alpha * new + (1.0 - alpha) * prev),
-                (Some(new), None)       => Some(new), // première détection : pas de lissage
-                (None, _)               => None,       // silence : on remet à zéro
+                (Some(new), None)       => Some(new), // première détection
+                (None, _)               => None,      // silence : on nettoie l'écran !
             };
 
             if let Some(f) = smoothed_freq {
@@ -68,7 +73,6 @@ fn main() -> eframe::Result<()> {
 
             if let Ok(mut lock) = shared_freq_audio.lock() {
                 *lock = smoothed_freq;
-            }
             }
         }
     });
